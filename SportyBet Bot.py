@@ -63,13 +63,15 @@ sta_df_f = pd.read_csv(f'{csv_files_path}/statarea.csv')
 percent = 57
 A_edge = 10 #ACCEPTED EDGE
 FA2W_percent = 60 #FORBET ACCEPTED 2WAY PERCENT
-FA3W_percent = 52 #FORBET ACCEPTED 3WAY PERCENT
+FA3W_percent = 55 #FORBET ACCEPTED 3WAY PERCENT
 
 
 async def place_bet(page, edge_amt, browser_delay_time=5000):
     # 2️⃣ Locate and clear input
     input_element = await page.waitForSelector('#j_stake_0 input', timeout=browser_delay_time)
     await page.evaluate('(el) => el.scrollIntoView({ behavior: "smooth", block: "center" })', input_element)
+    await input_element.click()
+    await asyncio.sleep(1)
     await input_element.click()
     await asyncio.sleep(1)
     await page.keyboard.down('Control')
@@ -152,8 +154,7 @@ async def click_center(page, xpath: str, delay: float = 0.5):
         print(f"[ERROR] Could not click on '{xpath}': {e}")
         return False
 
-
-
+ 
 
 async def main():
     global acc_df, bcl_df, fst_df, frb_df, pre_df, sta_df
@@ -179,6 +180,13 @@ async def main():
             ''')
         except:
             try:
+                # Scroll element into view
+                await page.evaluate(f'''
+                    el = document.evaluate('//*[@id="importMatch"]/div[26]/span[{fir_match}]',
+                    document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                ''')
+
                 await click_center(page, f'//*[@id="importMatch"]/div[26]/span[{fir_match}]') 
             except:
                 break
@@ -190,8 +198,12 @@ async def main():
             print(f'\n CURRENTLY ON SPORTY NUMBER >>>> {fir_match} ON {sec_match}\n')
  
             # Wait for the first element to appear
-            element = await page.waitForXPath('//*[@id="importMatch"]/div[2]/div/div[4]/div[2]')
-            await element.getProperty('textContent')
+            try:
+                element = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]')
+                await element.getProperty('textContent')
+            except:
+                break
+
             await asyncio.sleep(1)
             try:
                 # Scroll element into view
@@ -201,31 +213,43 @@ async def main():
                     el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
                 ''')
             except:
+                print('error on 1 scroll')
                 break
             await asyncio.sleep(1)
 
             # Scroll again to make sure the next section is visible
-            await page.evaluate(f'''
-                el = document.evaluate('//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]',
-                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-            ''')
+            try:
+                await page.evaluate(f'''
+                    el = document.evaluate('//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]',
+                    document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                ''')
+            except:
+                print('error on 2 scroll')
+                break
 
             # Extract text values
-            date_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[1]/div[1]',timeout = browser_delay_time)
-            spt_date = (await (await date_elem.getProperty('textContent')).jsonValue()).split()[0]
-            spt_date = datetime.strptime(f"2025/{spt_date}", "%Y/%d/%m").strftime("%Y-%m-%d")
+            print('currently on data extraction')
+            try:
+                date_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[1]/div[1]',timeout = browser_delay_time)
+                spt_date = (await (await date_elem.getProperty('textContent')).jsonValue()).split()[0]
+                spt_date = datetime.strptime(f"2025/{spt_date}", "%Y/%d/%m").strftime("%Y-%m-%d")
 
-            time_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[1]/div[1]')
-            spt_time = (await (await time_elem.getProperty('textContent')).jsonValue()).strip()
+                time_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[1]/div[1]')
+                spt_time = (await (await time_elem.getProperty('textContent')).jsonValue()).strip()
 
-            home_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[1]')
-            spt_home_team = (await (await home_elem.getProperty('textContent')).jsonValue()).strip()
+                home_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[1]')
+                spt_home_team = (await (await home_elem.getProperty('textContent')).jsonValue()).strip()
 
-            away_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[2]')
-            spt_away_team = (await (await away_elem.getProperty('textContent')).jsonValue()).strip()
+                away_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[2]')
+                spt_away_team = (await (await away_elem.getProperty('textContent')).jsonValue()).strip()
 
+            except:
+                print('error on data extraction section')
+                break
+    
             print(spt_date, spt_time, spt_home_team, spt_away_team)
+
             pp_target = f'{spt_date}-{spt_time}-{spt_home_team}-{spt_away_team}'
             pp_data['INFO'].append(pp_target)
 
