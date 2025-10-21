@@ -23,33 +23,40 @@ save_path = f'{save_dir}/Data.csv'
 
 
 
-
-
-def sort_by_time(df, current_time):
+def sort_by_name(df, spt_home_team, spt_away_team, percent):
     try:
-        # Convert the string time to datetime object
-        time_obj = datetime.strptime(current_time, "%H:%M")
+        # Calculate similarity for home team
+        df['HOME_SIMILARITY'] = df['HOME TEAM'].apply(
+            lambda x: ss(None, str(x).lower(), str(spt_home_team).lower()).ratio() * 100
+        )
 
-        # Define the time range (1 hour before and 1 hour after)
-        start_time = time_obj - timedelta(hours=1)
-        end_time = time_obj + timedelta(hours=1)
+        # Calculate similarity for away team
+        df['AWAY_SIMILARITY'] = df['AWAY TEAM'].apply(
+            lambda x: ss(None, str(x).lower(), str(spt_away_team).lower()).ratio() * 100
+        )
 
-        # Convert 'TIME' column to datetime objects for comparison
-        df['TIME_DT'] = pd.to_datetime(df['TIME'], format="%H:%M", errors='coerce')
+        # Keep only rows where BOTH home & away similarity >= threshold
+        filtered_df = df[
+            (df['HOME_SIMILARITY'] >= percent) &
+            (df['AWAY_SIMILARITY'] >= percent)
+        ].copy()
 
-        # Keep only rows within the ±1-hour window
-        filtered_df = df[(df['TIME_DT'] >= start_time) & (df['TIME_DT'] <= end_time)]
+        # Sort by total similarity (combined)
+        filtered_df['TOTAL_SIMILARITY'] = (
+            filtered_df['HOME_SIMILARITY'] + filtered_df['AWAY_SIMILARITY']
+        ) / 2
 
-        # Sort and reset index
-        filtered_df = filtered_df.sort_values(by='TIME_DT').reset_index(drop=True)
+        filtered_df = filtered_df.sort_values(by='TOTAL_SIMILARITY', ascending=False).reset_index(drop=True)
 
-        # Drop helper column
-        filtered_df = filtered_df.drop(columns=['TIME_DT'])
+        # Drop helper columns
+        filtered_df = filtered_df.drop(columns=['HOME_SIMILARITY', 'AWAY_SIMILARITY', 'TOTAL_SIMILARITY'])
 
         return filtered_df
+
     except Exception as e:
-        print(f"Error sorting by time: {e}")
+        print(f"Error sorting by team similarity: {e}")
         return df
+    
 
         
 # # Read the CSV files
@@ -64,7 +71,7 @@ percent = 57
 A_edge = 10 #ACCEPTED EDGE
 FA2W_percent = 60 #FORBET ACCEPTED 2WAY PERCENT
 FA3W_percent = 55 #FORBET ACCEPTED 3WAY PERCENT
-
+Err_Timeout = 7000 # WEBPAGE TIMEOUT 
 
 async def place_bet(page, edge_amt, browser_delay_time=5000):
     # 2️⃣ Locate and clear input
@@ -145,6 +152,7 @@ async def click_center(page, xpath: str, delay: float = 0.5):
         y = box['y'] + box['height'] / 2
 
         # 6️⃣ Perform the click at the center
+        time.sleep(1)
         await page.mouse.click(x, y)
         print(f"[OK] Clicked center of '{xpath}' at ({x:.2f}, {y:.2f})")
 
@@ -158,10 +166,13 @@ async def click_center(page, xpath: str, delay: float = 0.5):
 
 async def main():
     global acc_df, bcl_df, fst_df, frb_df, pre_df, sta_df
+    SN_page = [] #SEARCHED NEXT PAGE
     browser = await launch(
         executablePath=r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
         headless=False  # Set False if you want to see the browser
     )
+
+    
     page = await browser.newPage()
     url = 'https://www.sportybet.com/ng/sport/football/today'
     await page.goto(url=url,timeout = 0,waitUntil='networkidle2')
@@ -172,6 +183,7 @@ async def main():
 
     for fir_match in range(2,50): # MAIN LAYER (2 MINIMUM VALUE)
         try:
+            await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[1]', timeout=7000)
             # Scroll element into view
             await page.evaluate(f'''
                 el = document.evaluate('//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[1]',
@@ -180,14 +192,23 @@ async def main():
             ''')
         except:
             try:
-                # Scroll element into view
-                await page.evaluate(f'''
-                    el = document.evaluate('//*[@id="importMatch"]/div[26]/span[{fir_match}]',
-                    document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                ''')
+                print('\n CURRENTLY ON PAGINATION SECTION \n')
+                for next_page in range(2,12):
+                    print('next_page: ',next_page)
+                    print('SN_page: ',SN_page)
+                    if next_page not in SN_page:
+                        SN_page.append(next_page)
+                        await page.waitForXPath(f'//span[@class="pageNum" and text()="{next_page}"]', timeout=Err_Timeout)
+                        # Scroll element into view
+                        await page.evaluate(f'''
+                            el = document.evaluate('//span[@class="pageNum" and text()="{next_page}"]',
+                            document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                            el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                        ''')
 
-                await click_center(page, f'//*[@id="importMatch"]/div[26]/span[{fir_match}]') 
+                        await click_center(page, f'//span[@class="pageNum" and text()="{next_page}"]') 
+                        print('\n CLICKED ON NEXXT PAGE \n')
+                        break
             except:
                 break
 
@@ -199,7 +220,7 @@ async def main():
  
             # Wait for the first element to appear
             try:
-                element = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]')
+                element = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]', timeout=7000)
                 await element.getProperty('textContent')
             except:
                 break
@@ -231,17 +252,17 @@ async def main():
             # Extract text values
             print('currently on data extraction')
             try:
-                date_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[1]/div[1]',timeout = browser_delay_time)
+                date_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[1]/div[1]', timeout=Err_Timeout)
                 spt_date = (await (await date_elem.getProperty('textContent')).jsonValue()).split()[0]
                 spt_date = datetime.strptime(f"2025/{spt_date}", "%Y/%d/%m").strftime("%Y-%m-%d")
 
-                time_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[1]/div[1]')
+                time_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[1]/div[1]', timeout=Err_Timeout)
                 spt_time = (await (await time_elem.getProperty('textContent')).jsonValue()).strip()
 
-                home_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[1]')
+                home_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[1]', timeout=Err_Timeout)
                 spt_home_team = (await (await home_elem.getProperty('textContent')).jsonValue()).strip()
 
-                away_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[2]')
+                away_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[2]', timeout=Err_Timeout)
                 spt_away_team = (await (await away_elem.getProperty('textContent')).jsonValue()).strip()
 
             except:
@@ -259,13 +280,12 @@ async def main():
             if pp_target not in pp_data_df:
                 saving_files(data=pp_data,path=save_path)
 
-                current_time = spt_time
-                acc_df = sort_by_time(acc_df_f, current_time)
-                bcl_df = sort_by_time(bcl_df_f, current_time)
-                fst_df = sort_by_time(fst_df_f, current_time)
-                frb_df = sort_by_time(frb_df_f, current_time)
-                pre_df = sort_by_time(pre_df_f, current_time)
-                sta_df = sort_by_time(sta_df_f, current_time)
+                acc_df = sort_by_name(acc_df_f, spt_home_team, spt_away_team, percent)
+                bcl_df = sort_by_name(bcl_df_f, spt_home_team, spt_away_team, percent)
+                fst_df = sort_by_name(fst_df_f, spt_home_team, spt_away_team, percent)
+                frb_df = sort_by_name(frb_df_f, spt_home_team, spt_away_team, percent)
+                pre_df = sort_by_name(pre_df_f, spt_home_team, spt_away_team, percent)
+                sta_df = sort_by_name(sta_df_f, spt_home_team, spt_away_team, percent)
                 all_df = [acc_df,bcl_df,fst_df,pre_df,sta_df]
 
                 print('\n\n2222222222222222222222222222222222222 ALMIGHTY SETTINGS STARTS 2222222222222222222222222222222222222222\n ')
@@ -366,9 +386,12 @@ async def main():
 
 
                             # ======================================== Over/Under 2.5 OPTIONS ================================================
+                            try:
+                                main_ovr_odd = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[2]/div[1]', timeout=Err_Timeout)
+                                main_ovr_odd_text = (await (await main_ovr_odd.getProperty('textContent')).jsonValue()).strip()
+                            except:
+                                main_ovr_odd_text = '5.5'
 
-                            main_ovr_odd = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[2]/div[1]')
-                            main_ovr_odd_text = (await (await main_ovr_odd.getProperty('textContent')).jsonValue()).strip()
 
                             if '2.5' in main_ovr_odd_text:
                                 print('OVER 2.5 DETECTED, CHECKING FOR EDGE ODDS NOW....')
