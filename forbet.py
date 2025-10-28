@@ -53,7 +53,7 @@ async def main():
             }
     
     for main_url in all_url:
-        await page.goto(main_url, {'waitUntil': 'networkidle2'})
+        await page.goto(main_url,timeout = 0,waitUntil='networkidle2')
 
         for i in range(7):  # scroll 10 times
             await page.evaluate('window.scrollBy(0, window.innerHeight)')
@@ -105,8 +105,8 @@ async def main():
             print('\n CURRENTLY ON OVER/UNDER OPTION \n')
             hm_team = [y.text for y in all_content.find_all('span', class_='homeTeam')]
             aw_team = [y.text for y in all_content.find_all('span', class_='awayTeam')]
-            over_2_5 = [y.find_all('span')[0].text for y in all_content.find_all('div', class_='fprc')]
-            under_2_5 = [y.find_all('span')[1].text for y in all_content.find_all('div', class_='fprc')]
+            under_2_5 = [y.find_all('span')[0].text for y in all_content.find_all('div', class_='fprc')]
+            over_2_5 = [y.find_all('span')[1].text for y in all_content.find_all('div', class_='fprc')]
             # print(hm_team,aw_team,under_2_5,over_2_5)
             print(len(hm_team), len(aw_team), len(under_2_5), len(over_2_5))
             ovrund_data['HOME TEAM']= hm_team
